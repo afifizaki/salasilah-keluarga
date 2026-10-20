@@ -1,194 +1,108 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-import datetime
-import json
+import sqlite3
 
-# 1. Sambungan Pangkalan Data SQLite
+# ---------------------------------------------------------
+# CONFIGURE STREAMLIT PAGE
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="Salasilah Keluarga",
+    page_icon="👨‍👩‍👧‍👦",
+    layout="wide"
+)
+
+# Connect to SQLite Database
 conn = sqlite3.connect('salasilah_keluarga.db', check_same_thread=False)
-c = conn.cursor()
+cursor = conn.cursor()
 
-c.execute('''
+# Make sure table exists
+cursor.execute('''
     CREATE TABLE IF NOT EXISTS ahli_keluarga (
         id TEXT PRIMARY KEY,
         branch_no INTEGER,
-        relationship TEXT,
-        parent_spouse_id TEXT,
-        child_order INTEGER,
         full_name TEXT,
-        gender TEXT,
-        dob TEXT,
-        deceased TEXT
+        parent_spouse_id TEXT,
+        relationship TEXT,
+        gender TEXT
     )
 ''')
 conn.commit()
 
-st.title("🌳 Sistem Salasilah Keluarga Hj Makhtar & Hjh Halimah")
+# ---------------------------------------------------------
+# SIDEBAR: ADMIN LOGIN SYSTEM (READ-ONLY DEFAULT)
+# ---------------------------------------------------------
+st.sidebar.title("🔒 Mod Capaian")
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "➕ Tambah Ahli Baru", 
-    "✏️ Edit / Padam Rekod", 
-    "📁 Muat Naik JSON (Import)", 
-    "🗺️ Carta Salasilah"
-])
+# Tentukan kata laluan Admin anda di sini (Boleh ditukar mengikut cita rasa)
+ADMIN_PASSWORD = "keluarga123"
+
+is_admin = False
+mode = st.sidebar.radio("Pilih Mod:", ["👁️ Paparan Awam (Read-Only)", "✏️ Mod Pentadbir (Admin)"])
+
+if mode == "✏️ Mod Pentadbir (Admin)":
+    password_input = st.sidebar.text_input("Masukkan Kata Laluan Admin:", type="password")
+    if password_input == ADMIN_PASSWORD:
+        is_admin = True
+        st.sidebar.success("✅ Log masuk Pentadbir berjaya!")
+    elif password_input != "":
+        st.sidebar.error("❌ Kata laluan salah!")
+
+st.sidebar.divider()
+st.sidebar.info("💡 **Nota:** Ahli keluarga awam tidak boleh mengedit atau memadam sebarang data pangkalan data.")
+
+st.title("👨‍👩‍👧‍👦 Sistem Salasilah Keluarga")
 
 # ---------------------------------------------------------
-# TAB 1: TAMBAH AHLI BARU
+# TABS SELECTION BASED ON ROLE
+# ---------------------------------------------------------
+if is_admin:
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📋 Senarai Ahli", 
+        "🗺️ Carta Pokok Salasilah", 
+        "➕ Tambah / Kemaskini Ahli", 
+        "🗑️ Padam Rekod"
+    ])
+else:
+    tab1, tab2 = st.tabs([
+        "📋 Senarai Ahli", 
+        "🗺️ Carta Pokok Salasilah"
+    ])
+
+# ---------------------------------------------------------
+# TAB 1: SENARAI AHLI (READ-ONLY FOR ALL)
 # ---------------------------------------------------------
 with tab1:
-    st.subheader("Borang Pendaftaran Ahli Baru")
-    branch = st.number_input("Nombor Cawangan (1-12)", min_value=1, max_value=12, value=1, key="add_branch")
-    rel = st.selectbox("Hubungan", ["Sibling (Branch Head)", "Spouse", "Child", "Grandchild", "Great-Grandchild"], key="add_rel")
-    parent_id = st.text_input("ID IbuBapa / Pasangan (Contoh: 01 atau 0101)", value="", key="add_parent_id")
-    child_order = st.number_input("Urutan Anak (Jika Anak/Cucu)", min_value=0, max_value=20, value=0, key="add_order")
+    st.subheader("📋 Senarai Ahli Keluarga")
     
-    # Kiraan ID Automatik
-    auto_id = ""
-    if rel == "Sibling (Branch Head)":
-        auto_id = f"{branch:02d}"
-    elif rel == "Spouse" and parent_id:
-        auto_id = f"{parent_id}S"
-    elif child_order > 0 and parent_id:
-        auto_id = f"{parent_id}{child_order:02d}"
-
-    st.info(f"ID Automatik Dijana: **{auto_id}**")
-
-    name = st.text_input("Nama Penuh", key="add_name")
-    gender = st.selectbox("Jantina", ["Lelaki", "Perempuan"], key="add_gender")
-    
-    today = datetime.date.today()
-    min_date = datetime.date(1900, 1, 1)
-    
-    dob = st.date_input(
-        "Tarikh Lahir",
-        value=datetime.date(1980, 1, 1),
-        min_value=min_date,
-        max_value=today,
-        key="add_dob"
+    df_display = pd.read_sql_query(
+        "SELECT id AS 'Kod ID', branch_no AS 'Cawangan', full_name AS 'Nama Penuh', relationship AS 'Hubungan', gender AS 'Jantina', parent_spouse_id AS 'ID Ibu Bapa / Pasangan' FROM ahli_keluarga ORDER BY branch_no ASC, id ASC", 
+        conn
     )
     
-    deceased = st.selectbox("Meninggal Dunia?", ["No", "Yes"], key="add_deceased")
+    col_search, col_branch = st.columns(2)
+    with col_search:
+        search_query = st.text_input("🔍 Cari Nama Ahli Keluarga:")
+    with col_branch:
+        filter_branch = st.selectbox("🎯 Penapis Cawangan:", ["Semua"] + [f"Cawangan {i:02d}" for i in range(1, 13)] + ["Generasi Atas (Moyang/Datuk/Nenek)"])
 
-    if st.button("Simpan Ahli Baru"):
-        if auto_id and name:
-            c.execute('''
-                INSERT OR REPLACE INTO ahli_keluarga VALUES (?,?,?,?,?,?,?,?,?)
-            ''', (auto_id, branch, rel, parent_id, child_order, name, gender, str(dob), deceased))
-            conn.commit()
-            st.success(f"Berjaya menyimpan maklumat {name} (ID: {auto_id})!")
-            st.rerun()
+    filtered_df = df_display.copy()
+    
+    if search_query:
+        filtered_df = filtered_df[filtered_df['Nama Penuh'].str.contains(search_query, case=False, na=False)]
+        
+    if filter_branch != "Semua":
+        if filter_branch == "Generasi Atas (Moyang/Datuk/Nenek)":
+            filtered_df = filtered_df[filtered_df['Cawangan'] == 0]
         else:
-            st.error("Sila pastikan ID dan Nama Penuh diisi.")
+            b_num = int(filter_branch.split()[1])
+            filtered_df = filtered_df[filtered_df['Cawangan'] == b_num]
+
+    st.dataframe(filtered_df, use_container_width=True)
 
 # ---------------------------------------------------------
-# TAB 2: EDIT & PADAM REKOD
+# TAB 2: CARTA POKOK SALASILAH (READ-ONLY FOR ALL)
 # ---------------------------------------------------------
 with tab2:
-    st.subheader("📋 Jadual & Pengurusan Rekod")
-    df = pd.read_sql_query("SELECT * FROM ahli_keluarga ORDER BY id", conn)
-    st.dataframe(df, use_container_width=True)
-
-    if not df.empty:
-        st.divider()
-        st.subheader("⚙️ Kemaskini / Padam Ahli")
-        
-        all_ids = df['id'].tolist()
-        selected_id = st.selectbox("Pilih ID Ahli Untuk Diubah/Dipadam:", all_ids)
-        
-        record = df[df['id'] == selected_id].iloc[0]
-        col_edit, col_del = st.columns(2)
-        
-        with col_edit:
-            st.write(f"**Mengemaskini Rekod: {record['full_name']} ({record['id']})**")
-            edit_name = st.text_input("Nama Penuh", value=record['full_name'], key="edit_name")
-            edit_gender = st.selectbox("Jantina", ["Lelaki", "Perempuan"], index=0 if record['gender'] == "Lelaki" else 1, key="edit_gender")
-            
-            try:
-                curr_dob = datetime.datetime.strptime(record['dob'], "%Y-%m-%d").date()
-            except:
-                curr_dob = datetime.date(1980, 1, 1)
-                
-            edit_dob = st.date_input("Tarikh Lahir", value=curr_dob, min_value=min_date, max_value=today, key="edit_dob")
-            edit_deceased = st.selectbox("Meninggal Dunia?", ["No", "Yes"], index=0 if record['deceased'] == "No" else 1, key="edit_deceased")
-            
-            if st.button("Simpan Perubahan"):
-                c.execute('''
-                    UPDATE ahli_keluarga 
-                    SET full_name = ?, gender = ?, dob = ?, deceased = ?
-                    WHERE id = ?
-                ''', (edit_name, edit_gender, str(edit_dob), edit_deceased, selected_id))
-                conn.commit()
-                st.success(f"Rekod {selected_id} telah berjaya dikemaskini!")
-                st.rerun()
-                
-        with col_del:
-            st.write("**Padam Rekod**")
-            st.warning(f"Adakah anda pasti ingin memadam **{record['full_name']}** (ID: {selected_id})?")
-            if st.button("🗑️ Padam Rekod Ini", type="primary"):
-                c.execute("DELETE FROM ahli_keluarga WHERE id = ?", (selected_id,))
-                conn.commit()
-                st.success(f"Rekod {selected_id} telah dipadam.")
-                st.rerun()
-
-# ---------------------------------------------------------
-# TAB 3: MUAT NAIK FAIL JSON (IMPORT DATA)
-# ---------------------------------------------------------
-with tab3:
-    st.subheader("📥 Import Data Dari Fail JSON")
-    st.write("Muat naik fail `.json` anda di sini untuk melengkapkan atau menggabungkan pangkalan data salasilah.")
-
-    uploaded_file = st.file_uploader("Pilih fail JSON dari komputer / MacBook anda", type=["json"])
-
-    if uploaded_file is not None:
-        try:
-            # Membaca kandungan fail dan membersihkan ruang tersembunyi (\xa0)
-            raw_content = uploaded_file.read().decode("utf-8").replace('\xa0', ' ')
-            json_data = json.loads(raw_content)
-            
-            st.success(f"Fail **{uploaded_file.name}** berjaya dibaca! Ditemui {len(json_data)} rekod.")
-            
-            # Tunjukkan pratonton data
-            df_upload = pd.DataFrame(json_data)
-            st.dataframe(df_upload.head(10), use_container_width=True)
-
-            if st.button("🚀 Import Rekod Ke Pangkalan Data"):
-                count = 0
-                for item in json_data:
-                    # Penyesuaian nama kunci JSON
-                    item_id = item.get("ID") or item.get("id")
-                    item_branch = int(item.get("Branch") or item.get("branch_no") or (item_id[:2] if item_id else 1))
-                    item_rel = item.get("Relationship") or item.get("relationship") or "Member"
-                    item_name = item.get("FullName") or item.get("full_name") or ""
-                    item_gender = item.get("Gender") or item.get("gender") or "Lelaki"
-                    item_dob = item.get("DOB") or item.get("dob") or "1980-01-01"
-                    item_deceased = item.get("Deceased") or item.get("deceased") or "No"
-                    
-                    # Hubungan Parent/Spouse
-                    item_parent = ""
-                    if item_rel == "Spouse" and item_id.endswith("S"):
-                        item_parent = item_id[:-1]
-                    elif len(item_id) > 2 and not item_id.endswith("S"):
-                        item_parent = item_id[:-2]
-
-                    if item_id and item_name:
-                        c.execute('''
-                            INSERT OR REPLACE INTO ahli_keluarga 
-                            VALUES (?,?,?,?,?,?,?,?,?)
-                        ''', (item_id, item_branch, item_rel, item_parent, 0, item_name, item_gender, item_dob, item_deceased))
-                        count += 1
-
-                conn.commit()
-                st.balloons()
-                st.success(f"Berjaya mengimport {count} rekod ke dalam pangkalan data salasilah!")
-                st.rerun()
-
-        except Exception as e:
-            st.error(f"Gagal membaca fail JSON: {e}")
-
-# ---------------------------------------------------------
-# TAB CARTA SALASILAH (DIKEMAS KINI - BEBAS RALAT GRAPHVIZ)
-# ---------------------------------------------------------
-with tab4:
     st.subheader("🗺️ Carta Pokok Salasilah Keluarga")
     
     try:
@@ -199,8 +113,8 @@ with tab4:
         )
         
         if not df_tree.empty:
-            col_filter1, _ = st.columns(2)
-            with col_filter1:
+            col_f1, _ = st.columns(2)
+            with col_f1:
                 branches = ["Semua Cawangan (01-12)"] + [f"Cawangan {i:02d}" for i in range(1, 13)]
                 selected_branch = st.selectbox("🎯 Pilih Paparan Cawangan:", branches)
 
@@ -266,7 +180,6 @@ with tab4:
                         for n in group:
                             s.node(n)
 
-            # Senarai ID untuk carian selamat
             existing_ids = set(df_filtered['id'].astype(str).tolist())
 
             # 3. SAMBUNGAN PASANGAN MOYANG & DATUK/NENEK
@@ -316,3 +229,57 @@ with tab4:
 
     except Exception as e:
         st.warning(f"Sila pastikan perisian 'graphviz' terpasang dengan betul. Ralat: {e}")
+
+# ---------------------------------------------------------
+# TABS 3 & 4: BORANG PENGURUSAN (KHAS UNTUK ADMIN SAHAJA)
+# ---------------------------------------------------------
+if is_admin:
+    with tab3:
+        st.subheader("➕ Tambah atau Kemaskini Ahli Keluarga")
+        
+        with st.form("form_add_edit"):
+            col_id, col_branch = st.columns(2)
+            with col_id:
+                new_id = st.text_input("Kod ID (Contoh: 01, 01S, 0101, GF):")
+            with col_branch:
+                new_branch = st.number_input("Nombor Cawangan (0 = Generasi Atas, 1-12 = Cawangan):", min_value=0, max_value=12, value=1)
+
+            new_name = st.text_input("Nama Penuh Ahli Keluarga:")
+            
+            col_rel, col_gender = st.columns(2)
+            with col_rel:
+                new_rel = st.selectbox("Hubungan / Peranan:", ["Head", "Spouse", "Child"])
+            with col_gender:
+                new_gender = st.selectbox("Jantina:", ["Lelaki", "Perempuan"])
+                
+            new_parent_id = st.text_input("ID Ibu Bapa / Pasangan (Parent/Spouse ID):")
+            
+            submit_btn = st.form_submit_button("💾 Simpan / Kemaskini Rekod")
+            
+            if submit_btn:
+                if new_id and new_name:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO ahli_keluarga (id, branch_no, full_name, parent_spouse_id, relationship, gender)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (new_id.strip(), new_branch, new_name.strip(), new_parent_id.strip() if new_parent_id else None, new_rel, new_gender))
+                    conn.commit()
+                    st.success(f"✅ Rekod untuk '{new_name}' ({new_id}) berjaya disimpan!")
+                    st.rerun()
+                else:
+                    st.error("❌ Sila pastikan Kod ID dan Nama Penuh diisi.")
+
+    with tab4:
+        st.subheader("🗑️ Padam Rekod Ahli Keluarga")
+        
+        df_delete = pd.read_sql_query("SELECT id, full_name FROM ahli_keluarga ORDER BY id ASC", conn)
+        member_list = [f"{row['id']} - {row['full_name']}" for _, row in df_delete.iterrows()]
+        
+        selected_to_delete = st.selectbox("Sila Pilih Ahli Yang Ingin Dipadam:", ["-- Pilih Ahli --"] + member_list)
+        
+        if selected_to_delete != "-- Pilih Ahli --":
+            target_id = selected_to_delete.split(" - ")[0]
+            if st.button(f"🔥 Confirm Padam Rekod ({target_id})"):
+                cursor.execute("DELETE FROM ahli_keluarga WHERE id = ?", (target_id,))
+                conn.commit()
+                st.success(f"🗑️ Rekod ID {target_id} telah berjaya dipadam!")
+                st.rerun()
