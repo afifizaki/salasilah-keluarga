@@ -186,7 +186,7 @@ with tab3:
             st.error(f"Gagal membaca fail JSON: {e}")
 
 # ---------------------------------------------------------
-# TAB CARTA SALASILAH (FULL ANCESTOR CONNECTIONS)
+# TAB CARTA SALASILAH (DIKEMAS KINI - BEBAS RALAT GRAPHVIZ)
 # ---------------------------------------------------------
 with tab4:
     st.subheader("🗺️ Carta Pokok Salasilah Keluarga")
@@ -228,11 +228,11 @@ with tab4:
 
             ggp_nodes, gp_nodes, gen1_nodes, gen2_nodes, gen3_nodes = [], [], [], [], []
 
-            # 1. BINA NOD
+            # 1. BINA NOD UNTUK SETIAP AHLI
             for _, row in df_filtered.iterrows():
-                node_id = row['id']
-                name = row['full_name']
-                gender = row['gender']
+                node_id = str(row['id'])
+                name = str(row['full_name'])
+                gender = str(row['gender'])
                 
                 shape = "box" if gender == "Lelaki" else "ellipse"
                 
@@ -266,26 +266,32 @@ with tab4:
                         for n in group:
                             s.node(n)
 
-            # 3. SAMBUNGAN PASANGAN (GGF_GF-GGM_GF, GGF_GM-GGM_GM, GF-GM)
-            if 'GGF_GF' in df_filtered['id'].values and 'GGM_GF' in df_filtered['id'].values:
+            # Senarai ID untuk carian selamat
+            existing_ids = set(df_filtered['id'].astype(str).tolist())
+
+            # 3. SAMBUNGAN PASANGAN MOYANG & DATUK/NENEK
+            if 'GGF_GF' in existing_ids and 'GGM_GF' in existing_ids:
                 dot.edge("GGF_GF", "GGM_GF", style="dashed", color="#7F8C8D", label="pasangan")
-            if 'GGF_GM' in df_filtered['id'].values and 'GGM_GM' in df_filtered['id'].values:
+            if 'GGF_GM' in existing_ids and 'GGM_GM' in existing_ids:
                 dot.edge("GGF_GM", "GGM_GM", style="dashed", color="#7F8C8D", label="pasangan")
-            if 'GF' in df_filtered['id'].values and 'GM' in df_filtered['id'].values:
+            if 'GF' in existing_ids and 'GM' in existing_ids:
                 dot.edge("GF", "GM", style="dashed", color="#7F8C8D", label="pasangan")
 
             # 4. SAMBUNGAN KETURUNAN MOYANG -> DATUK & NENEK
-            if 'GGF_GF' in df_filtered['id'].values and 'GF' in df_filtered['id'].values:
+            if 'GGF_GF' in existing_ids and 'GF' in existing_ids:
                 dot.edge("GGF_GF", "GF", color="#B7950B", weight="2")
-            if 'GGF_GM' in df_filtered['id'].values and 'GM' in df_filtered['id'].values:
+            if 'GGF_GM' in existing_ids and 'GM' in existing_ids:
                 dot.edge("GGF_GM", "GM", color="#B7950B", weight="2")
 
             # 5. GARISAN PASANGAN GEN 1-3
-            spouse_rows = df_filtered[(df_filtered['relationship'] == 'Spouse') & (~df_filtered['id'].startswith('G'))]
+            spouse_rows = df_filtered[
+                (df_filtered['relationship'] == 'Spouse') & 
+                (~df_filtered['id'].astype(str).str.startswith('G'))
+            ]
             for _, sp in spouse_rows.iterrows():
-                sp_id = sp['id']
-                main_id = sp['parent_spouse_id']
-                if main_id in df_filtered['id'].values:
+                sp_id = str(sp['id'])
+                main_id = str(sp['parent_spouse_id'])
+                if main_id in existing_ids:
                     dot.edge(main_id, sp_id, style="dashed", constraint="true", color="#7F8C8D", label="pasangan")
 
             # 6. PAKSA SUSUNAN GEN 1 DARI ATAS KE BAWAH
@@ -298,11 +304,11 @@ with tab4:
 
             # 7. GARISAN KETURUNAN IBU BAPA -> ANAK (GEN 1, 2, 3)
             for _, row in df_filtered.iterrows():
-                node_id = row['id']
-                parent_id = row['parent_spouse_id']
-                rel = row['relationship']
+                node_id = str(row['id'])
+                parent_id = str(row['parent_spouse_id']) if row['parent_spouse_id'] else None
+                rel = str(row['relationship'])
                 
-                if parent_id and parent_id in df_filtered['id'].values and not node_id.startswith('G'):
+                if parent_id and parent_id in existing_ids and not node_id.startswith('G'):
                     if rel != 'Spouse' and not node_id.endswith('S'):
                         dot.edge(parent_id, node_id, color="#2C3E50")
                         
